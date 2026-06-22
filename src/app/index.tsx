@@ -1,5 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Modal,
   SafeAreaView,
@@ -11,7 +11,9 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+
 import Toast from "react-native-toast-message";
+import { supabase } from "../../lib/supabase";
 
 type Task = {
   id: string;
@@ -22,172 +24,277 @@ type Task = {
 export default function App() {
   const [modalVisible, setModalVisible] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const [tasks, setTasks] = useState<Task[]>([
-    {
-      id: "1",
-      title: "Study React Native",
-      completed: false,
-    },
-    {
-      id: "2",
-      title: "Finish Assignment",
-      completed: false,
-    },
-  ]);
+  // ⭐ NEW: edit states
+  const [editMode, setEditMode] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const handleAddTask = () => {
-    if (!taskTitle.trim()) {
+  // FETCH TASKS
+  const fetchTasks = async () => {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
       Toast.show({
         type: "error",
-        text1: "Task Required",
-        text2: "Please enter a task title.",
+        text1: "Failed to load tasks",
+      });
+    } else {
+      setTasks((data as Task[]) || []);
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+
+  // ADD TASK
+  const handleAddTask = async () => {
+    const trimmed = taskTitle.trim();
+
+    if (!trimmed) {
+      Toast.show({
+        type: "error",
+        text1: "Task required",
       });
       return;
     }
 
-    const newTask = {
-      id: Date.now().toString(),
-      title: taskTitle.trim(),
-      completed: false,
-    };
+    setSubmitting(true);
 
-    setTasks([newTask, ...tasks]);
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert([{ title: trimmed, completed: false }])
+      .select()
+      .single();
 
-    Toast.show({
-      type: "success",
-      text1: "Task Added",
-      text2: `"${newTask.title}" added successfully`,
-    });
+    setSubmitting(false);
 
+    if (error || !data) {
+      Toast.show({
+        type: "error",
+        text1: "Failed to add task",
+      });
+      return;
+    }
+
+    setTasks((prev) => [data as Task, ...prev]);
     setTaskTitle("");
     setModalVisible(false);
+
+    Toast.show({ type: "success", text1: "Task added" });
   };
 
-  const toggleTask = (id: string) => {
-    setTasks(
-      tasks.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              completed: !task.completed,
-            }
-          : task,
-      ),
+  // ⭐ UPDATE TASK (NEW)
+  const handleUpdateTask = async () => {
+    if (!editingId) return;
+
+    const trimmed = taskTitle.trim();
+
+    if (!trimmed) {
+      Toast.show({ type: "error", text1: "Task required" });
+      return;
+    }
+
+    setSubmitting(true);
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .update({ title: trimmed })
+      .eq("id", editingId)
+      .select()
+      .single();
+
+    setSubmitting(false);
+
+    if (error || !data) {
+      Toast.show({
+        type: "error",
+        text1: "Update failed",
+      });
+      return;
+    }
+
+    setTasks((prev) =>
+      prev.map((t) => (t.id === editingId ? (data as Task) : t)),
+    );
+
+    setTaskTitle("");
+    setEditingId(null);
+    setEditMode(false);
+    setModalVisible(false);
+
+    Toast.show({ type: "success", text1: "Task updated" });
+  };
+
+  // TOGGLE TASK
+  const toggleTask = async (id: string, current: boolean) => {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ completed: !current })
+      .eq("id", id);
+
+    if (error) {
+      Toast.show({
+        type: "error",
+        text1: "Update failed",
+      });
+      return;
+    }
+
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, completed: !current } : t)),
     );
   };
 
-  const deleteTask = (id: string) => {
-    setTasks(tasks.filter((task) => task.id !== id));
+  // DELETE TASK
+  const deleteTask = async (id: string) => {
+    const { error } = await supabase.from("tasks").delete().eq("id", id);
 
-    Toast.show({
-      type: "success",
-      text1: "Task Deleted",
-      text2: "Task removed successfully",
-    });
+    if (error) {
+      Toast.show({
+        type: "error",
+        text1: "Delete failed",
+      });
+      return;
+    }
+
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+
+    Toast.show({ type: "success", text1: "Task deleted" });
+  };
+
+  // ⭐ OPEN EDIT MODE
+  const openEdit = (task: Task) => {
+    setEditMode(true);
+    setEditingId(task.id);
+    setTaskTitle(task.title);
+    setModalVisible(true);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* HEADER */}
       <View style={styles.header}>
         <Text style={styles.greeting}>Welcome Back 👋</Text>
         <Text style={styles.title}>TaskFlow</Text>
-        <Text style={styles.subtitle}>Stay productive and organized</Text>
+        <Text style={styles.subtitle}>Stay productive & organized</Text>
       </View>
 
-      {/* Stats Card */}
+      {/* STATS */}
       <View style={styles.statsCard}>
         <View>
           <Text style={styles.statsNumber}>{tasks.length}</Text>
           <Text style={styles.statsLabel}>Total Tasks</Text>
         </View>
 
-        <MaterialIcons name="task-alt" size={42} color="#4F46E5" />
+        <MaterialIcons name="task-alt" size={42} color="#6366F1" />
       </View>
 
-      {/* Task List */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        style={styles.listContainer}
-      >
-        {tasks.length === 0 ? (
+      {/* TASK LIST */}
+      <ScrollView style={styles.listContainer}>
+        {loading ? (
+          <Text style={styles.loadingText}>Loading tasks...</Text>
+        ) : tasks.length === 0 ? (
           <View style={styles.emptyContainer}>
             <MaterialIcons name="assignment" size={80} color="#D1D5DB" />
             <Text style={styles.emptyTitle}>No Tasks Yet</Text>
-            <Text style={styles.emptyText}>
-              Tap the button below to add your first task.
-            </Text>
+            <Text style={styles.emptyText}>Tap + to add your first task</Text>
           </View>
         ) : (
           tasks.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.taskCard}
-              onPress={() => toggleTask(item.id)}
-              onLongPress={() => deleteTask(item.id)}
-            >
-              <MaterialIcons
-                name={
-                  item.completed ? "check-circle" : "radio-button-unchecked"
-                }
-                size={28}
-                color={item.completed ? "#22C55E" : "#9CA3AF"}
-              />
-
-              <Text
-                style={[
-                  styles.taskText,
-                  item.completed && styles.completedText,
-                ]}
+            <View key={item.id} style={styles.taskCard}>
+              <TouchableOpacity
+                style={styles.taskLeft}
+                onPress={() => toggleTask(item.id, item.completed)}
               >
-                {item.title}
-              </Text>
-            </TouchableOpacity>
+                <MaterialIcons
+                  name={
+                    item.completed ? "check-circle" : "radio-button-unchecked"
+                  }
+                  size={26}
+                  color={item.completed ? "#22C55E" : "#9CA3AF"}
+                />
+
+                <Text
+                  style={[
+                    styles.taskText,
+                    item.completed && styles.completedText,
+                  ]}
+                >
+                  {item.title}
+                </Text>
+              </TouchableOpacity>
+
+              {/* ⭐ EDIT BUTTON */}
+              <TouchableOpacity onPress={() => openEdit(item)}>
+                <MaterialIcons name="edit" size={22} color="#3B82F6" />
+              </TouchableOpacity>
+
+              {/* DELETE */}
+              <TouchableOpacity onPress={() => deleteTask(item.id)}>
+                <MaterialIcons
+                  name="delete-outline"
+                  size={22}
+                  color="#EF4444"
+                />
+              </TouchableOpacity>
+            </View>
           ))
         )}
       </ScrollView>
 
-      {/* Floating Add Button */}
+      {/* FLOATING BUTTON */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => setModalVisible(true)}
+        onPress={() => {
+          setEditMode(false);
+          setTaskTitle("");
+          setModalVisible(true);
+        }}
       >
         <MaterialIcons name="add" size={30} color="#fff" />
       </TouchableOpacity>
 
-      {/* Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
+      {/* MODAL (ADD + UPDATE) */}
+      <Modal visible={modalVisible} transparent animationType="slide">
         <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
           <View style={styles.backdrop}>
             <TouchableWithoutFeedback>
               <View style={styles.modalCard}>
-                <Text style={styles.modalTitle}>Create New Task</Text>
+                <Text style={styles.modalTitle}>
+                  {editMode ? "Update Task" : "Create Task"}
+                </Text>
 
                 <TextInput
                   style={styles.input}
-                  placeholder="What needs to be done?"
+                  placeholder="Enter task..."
                   value={taskTitle}
                   onChangeText={setTaskTitle}
-                  autoFocus
                 />
 
                 <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={styles.cancelBtn}
-                    onPress={() => {
-                      setTaskTitle("");
-                      setModalVisible(false);
-                    }}
-                  >
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  <TouchableOpacity onPress={() => setModalVisible(false)}>
+                    <Text style={styles.cancelText}>Cancel</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={styles.addBtn}
-                    onPress={handleAddTask}
+                    onPress={editMode ? handleUpdateTask : handleAddTask}
+                    disabled={submitting}
                   >
-                    <Text style={styles.addBtnText}>Add Task</Text>
+                    <Text style={styles.addBtnText}>
+                      {submitting ? "Saving..." : editMode ? "Update" : "Add"}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -201,192 +308,110 @@ export default function App() {
   );
 }
 
+/* ================= UI ================= */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F7FB",
+    backgroundColor: "#F5F7FF",
     paddingHorizontal: 20,
     paddingTop: 20,
   },
 
-  header: {
-    marginBottom: 24,
-  },
-
-  greeting: {
-    fontSize: 16,
-    color: "#6B7280",
-  },
-
-  title: {
-    fontSize: 36,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
-  subtitle: {
-    color: "#6B7280",
-    marginTop: 4,
-  },
+  header: { marginBottom: 20 },
+  greeting: { fontSize: 14, color: "#8B8FA3" },
+  title: { fontSize: 36, fontWeight: "900", color: "#141824" },
+  subtitle: { color: "#9AA3B2" },
 
   statsCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
+    backgroundColor: "#fff",
+    borderRadius: 20,
     padding: 20,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-
-    elevation: 5,
-    marginBottom: 20,
+    elevation: 3,
+    marginBottom: 15,
   },
 
-  statsNumber: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#111827",
-  },
+  statsNumber: { fontSize: 30, fontWeight: "900" },
+  statsLabel: { color: "#9AA3B2" },
 
-  statsLabel: {
-    color: "#6B7280",
-    marginTop: 4,
-  },
+  listContainer: { flex: 1 },
 
-  listContainer: {
-    flex: 1,
-  },
+  loadingText: { textAlign: "center", marginTop: 30, color: "#888" },
 
   taskCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
     flexDirection: "row",
-    alignItems: "center",
-    padding: 18,
-    borderRadius: 18,
-    marginBottom: 12,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-
-    elevation: 3,
+    justifyContent: "space-between",
+    padding: 15,
+    borderRadius: 16,
+    marginBottom: 10,
   },
 
-  taskText: {
-    marginLeft: 14,
-    fontSize: 16,
-    color: "#111827",
-    flex: 1,
-  },
+  taskLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+
+  taskText: { marginLeft: 10, fontSize: 15, color: "#141824" },
 
   completedText: {
     textDecorationLine: "line-through",
-    color: "#9CA3AF",
+    color: "#B0B6C6",
   },
 
-  emptyContainer: {
-    alignItems: "center",
-    marginTop: 80,
-  },
-
-  emptyTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 16,
-  },
-
-  emptyText: {
-    textAlign: "center",
-    color: "#6B7280",
-    marginTop: 8,
-  },
+  emptyContainer: { alignItems: "center", marginTop: 80 },
+  emptyTitle: { fontSize: 20, fontWeight: "800" },
+  emptyText: { color: "#9AA3B2" },
 
   fab: {
     position: "absolute",
-    right: 25,
-    bottom: 40,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#4F46E5",
+    right: 24,
+    bottom: 30,
+    backgroundColor: "#6366F1",
+    width: 65,
+    height: 65,
+    borderRadius: 35,
     justifyContent: "center",
     alignItems: "center",
-
-    shadowColor: "#4F46E5",
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-
-    elevation: 10,
   },
 
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
-    padding: 24,
+    padding: 20,
   },
 
   modalCard: {
-    backgroundColor: "#FFF",
-    borderRadius: 24,
-    padding: 24,
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 20,
   },
 
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 20,
-  },
+  modalTitle: { fontSize: 18, fontWeight: "800", marginBottom: 10 },
 
   input: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    height: 56,
-    fontSize: 16,
+    backgroundColor: "#F3F5F9",
+    borderRadius: 12,
+    padding: 12,
   },
 
   modalActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    marginTop: 20,
+    marginTop: 15,
   },
 
-  cancelBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    marginRight: 10,
-  },
-
-  cancelBtnText: {
-    color: "#6B7280",
+  cancelText: {
+    marginRight: 15,
+    color: "#888",
     fontWeight: "600",
   },
 
   addBtn: {
-    backgroundColor: "#4F46E5",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: "#6366F1",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
 
-  addBtnText: {
-    color: "#FFF",
-    fontWeight: "700",
-  },
+  addBtnText: { color: "#fff", fontWeight: "700" },
 });

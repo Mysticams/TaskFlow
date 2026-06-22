@@ -1,59 +1,56 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { StyleSheet, Text, TouchableHighlight, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity } from "react-native";
 
-type Task = {
+export type Task = {
   id: number;
   title: string;
   completed: boolean;
-  created_at: string;
+  created_at?: string;
 };
 
-type TaskItemProps = {
+type Props = {
   item: Task;
   onToggle: (item: Task) => void;
   onDelete: (id: number) => void;
 };
 
-export default function TaskItem({ item, onToggle, onDelete }: TaskItemProps) {
+export default function TaskItem({ item, onToggle, onDelete }: Props) {
   return (
-    <TouchableHighlight
-      underlayColor="#f2f2f2"
+    <TouchableOpacity
+      style={styles.card}
       onPress={() => onToggle(item)}
       onLongPress={() => onDelete(item.id)}
     >
-      <View style={styles.taskRow}>
-        <MaterialIcons
-          name={item.completed ? "check-circle" : "radio-button-unchecked"}
-          size={24}
-          color={item.completed ? "green" : "#999"}
-        />
+      <MaterialIcons
+        name={item.completed ? "check-circle" : "radio-button-unchecked"}
+        size={26}
+        color={item.completed ? "#22C55E" : "#999"}
+      />
 
-        <Text style={[styles.taskText, item.completed && styles.completedTask]}>
-          {item.title}
-        </Text>
-      </View>
-    </TouchableHighlight>
+      <Text style={[styles.text, item.completed && styles.done]}>
+        {item.title}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  taskRow: {
+  card: {
     flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fafafa",
-    padding: 15,
-    borderRadius: 10,
+    padding: 16,
+    backgroundColor: "#fff",
     marginBottom: 10,
+    borderRadius: 14,
+    alignItems: "center",
   },
-
-  taskText: {
-    flex: 1,
+  text: {
     marginLeft: 12,
     fontSize: 16,
+    color: "#111827",
+    flex: 1,
   },
-
-  completedTask: {
+  done: {
     textDecorationLine: "line-through",
-    color: "#999",
+    color: "#9CA3AF",
   },
 });
