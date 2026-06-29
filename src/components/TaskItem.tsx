@@ -1,5 +1,7 @@
+import React from "react";
+import { supabase } from "../../lib/supabase";
+import { Text, TouchableOpacity, StyleSheet } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { StyleSheet, Text, TouchableOpacity } from "react-native";
 
 export type Task = {
   id: number;
